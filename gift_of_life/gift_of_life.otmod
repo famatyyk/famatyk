@@ -1,0 +1,7 @@
+Module
+  name: gift_of_life
+  description: Gift of Life (heal + mana + loot) with UI.
+  author: Kuba
+  website: none
+  sandboxed: false
+  scripts: [ gift_of_life.lua ]
