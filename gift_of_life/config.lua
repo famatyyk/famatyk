@@ -35,6 +35,21 @@ return {
       manaStopPctMin  = nil,
       manaStopPctMax  = nil,
 
+      -- === Safety layer ===
+      -- Emergency heal/mana even if you accidentally toggle Heal/Mana OFF.
+      -- Keep these thresholds low so it only triggers when you're in real danger.
+      safety = {
+        enabled = true,
+        -- Heal when HP% <= emergencyHealPct (uses your existing heal spells/thresholds)
+        emergencyHealPct = 40,
+        -- Mana potion when MP% <= emergencyManaStartPct, stop at >= emergencyManaStopPct
+        emergencyManaStartPct = 10,
+        emergencyManaStopPct  = 30,
+        -- Absolute mana mode (optional; if set, overrides % mode for emergency)
+        emergencyManaStartMana = nil,
+        emergencyManaStopMana  = nil,
+      },
+
       -- Absolute ranges:
       manaStartManaMin = nil,
       manaStartManaMax = nil,

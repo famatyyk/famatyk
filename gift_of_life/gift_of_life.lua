@@ -1139,27 +1139,17 @@ local function setStatusText()
     manaOn and "ON" or "OFF",
     lootOn and "ON" or "OFF")
 
-  -- status label (HUD overlay)
-  local colBase = running and "#00ff3a" or "#ff2b2b"
-  pcall(function() if label then label:setText(txt) end end)
-  pcall(function() if label then label:setColor(colBase) end end)
+  local col = running and "#00ff3a" or "#ff2b2b"
 
-  -- window label (otui: winRunLabel; fallback: winStatusLabel)
+  pcall(function() if label then label:setText(txt) end end)
+  pcall(function() if label then label:setColor(col) end end)
+
   local win = ensureWindow()
   if win then
-    local wlabel = getUiChild(win, "winRunLabel") or getUiChild(win, "winStatusLabel")
+    local wlabel = getUiChild(win, "winStatusLabel")
     if wlabel then
       pcall(function() wlabel:setText(txt) end)
-
-      -- color: STOP=red, RUN but Heal/Mana OFF=yellow, OK=green
-      local col
-      if not running then col = "#ff2b2b"
-      elseif (not healOn) or (not manaOn) then col = "#ffcc00"
-      else col = "#00ff3a"
-      end
-      if type(wlabel.setColor) == "function" then
-        pcall(function() wlabel:setColor(col) end)
-      end
+      pcall(function() wlabel:setColor(col) end)
     end
   end
 end
@@ -2325,15 +2315,48 @@ G._tick = function()
     local win = ensureWindow()
     if win then pcall(updatePauseStatus, win, pinfo) end
   end
-  if pinfo and pinfo.paused == true then
-    scheduleNext(); return
-  end
+	  -- NOTE: pause should not block life-safety (heal/mana). It only blocks loot and other non-critical actions.
+	  local paused = (pinfo and pinfo.paused == true) and true or false
+
+	  -- Emergency safety (heal/mana even if user toggles are OFF)
+	  local safety = (type(CFG.safety) == "table") and CFG.safety or {}
+	  local safetyEnabled = (safety.enabled ~= false)
+	  local emergencyHealPct = tonumber(safety.emergencyHealPct)
+	  local emergencyManaStartPct = tonumber(safety.emergencyManaStartPct)
+	  local emergencyManaStopPct  = tonumber(safety.emergencyManaStopPct)
+	  local emergencyManaStartMana = tonumber(safety.emergencyManaStartMana)
+	  local emergencyManaStopMana  = tonumber(safety.emergencyManaStopMana)
+
+	  local emergencyHeal = false
+	  if safetyEnabled and type(hp) == "number" and type(emergencyHealPct) == "number" then
+	    emergencyHeal = (hp <= emergencyHealPct)
+	  end
+
+	  local emergencyMana = false
+	  if safetyEnabled then
+	    if type(manaCur) == "number" and type(emergencyManaStartMana) == "number" then
+	      emergencyMana = (manaCur <= emergencyManaStartMana)
+	    elseif type(mp) == "number" and type(emergencyManaStartPct) == "number" then
+	      emergencyMana = (mp <= emergencyManaStartPct)
+	    end
+	  end
+
+	  -- Throttled safety log (so you immediately see it's protecting you)
+	  if (emergencyHeal or emergencyMana) then
+	    local nextLog = tonumber(G._nextSafetyLogMs) or 0
+	    if t >= nextLog then
+	      G._nextSafetyLogMs = t + 3000
+	      if emergencyHeal then pushUiLog("SAFETY: emergency HEAL active") end
+	      if emergencyMana then pushUiLog("SAFETY: emergency MANA active") end
+	    end
+	  end
 
 
 
 
--- Heal
-  if G.flags.heal and (t - (G._lastSpellMs or 0) >= (tonumber(CFG.spellCooldownMs) or 850)) then
+	-- Heal
+	  local healEnabled = (G.flags.heal == true)
+	  if (healEnabled or emergencyHeal) and (t - (G._lastSpellMs or 0) >= (tonumber(CFG.spellCooldownMs) or 850)) then
     if type(hp) == "number" then
       if hp <= (tonumber(CFG.hpExuraVitaPct) or 0) then
         castSpell(CFG.spellExuraVita); G._lastSpellMs = t
@@ -2346,7 +2369,8 @@ G._tick = function()
   end
 
   -- Mana
-  if G.flags.mana then
+	  local manaEnabled = (G.flags.mana == true)
+	  if (manaEnabled or emergencyMana) then
     if mp or manaCur then
       if G._drinking == nil then G._drinking = false end
 
@@ -2356,24 +2380,39 @@ G._tick = function()
         type(CFG.manaStopManaMin) == "number" or type(CFG.manaStopManaMax) == "number"
       )
 
-      ensureManaTargets(useAbs)
+	      local useEmergencyTargets = (emergencyMana == true) and (manaEnabled ~= true)
+	      if not useEmergencyTargets then
+	        ensureManaTargets(useAbs)
+	      end
 
       local value = useAbs and manaCur or mp
       if type(value) == "number" then
-        local startT = G._manaStartTarget
-        local stopT  = G._manaStopTarget
+	        local startT = useEmergencyTargets and (useAbs and emergencyManaStartMana or emergencyManaStartPct) or G._manaStartTarget
+	        local stopT  = useEmergencyTargets and (useAbs and emergencyManaStopMana  or emergencyManaStopPct)  or G._manaStopTarget
+	        -- Emergency fallback: if stop target is not provided, derive a safe stop threshold.
+	        if useEmergencyTargets and type(stopT) ~= "number" and type(startT) == "number" then
+	          if useAbs then
+	            stopT = startT + 200
+	          else
+	            stopT = math.min(99, startT + 20)
+	          end
+	        end
 
         if (not G._drinking) and type(startT) == "number" and value <= startT then
           G._drinking = true
         elseif G._drinking and type(stopT) == "number" and value >= stopT then
           G._drinking = false
-          G._manaStartTarget, G._manaStopTarget = nil, nil
+	          if not useEmergencyTargets then
+	            G._manaStartTarget, G._manaStopTarget = nil, nil
+	          end
         end
 
-        if (not useAbs) and G._drinking and type(mp) == "number" and mp >= 99 then
-          G._drinking = false
-          G._manaStartTarget, G._manaStopTarget = nil, nil
-        end
+	        if (not useAbs) and G._drinking and type(mp) == "number" and mp >= 99 then
+	          G._drinking = false
+	          if not useEmergencyTargets then
+	            G._manaStartTarget, G._manaStopTarget = nil, nil
+	          end
+	        end
       end
 
       if G._drinking and (t - (G._lastPotionMs or 0) >= (tonumber(CFG.potionCooldownMs) or 900)) then
@@ -2390,8 +2429,10 @@ G._tick = function()
     end
   end
 
-  -- Loot
-  doLootTick(t)
+	  -- Loot (paused blocks loot)
+	  if not paused then
+	    doLootTick(t)
+	  end
 
   scheduleNext()
 end
