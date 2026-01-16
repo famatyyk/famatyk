@@ -1139,17 +1139,27 @@ local function setStatusText()
     manaOn and "ON" or "OFF",
     lootOn and "ON" or "OFF")
 
-  local col = running and "#00ff3a" or "#ff2b2b"
-
+  -- status label (HUD overlay)
+  local colBase = running and "#00ff3a" or "#ff2b2b"
   pcall(function() if label then label:setText(txt) end end)
-  pcall(function() if label then label:setColor(col) end end)
+  pcall(function() if label then label:setColor(colBase) end end)
 
+  -- window label (otui: winRunLabel; fallback: winStatusLabel)
   local win = ensureWindow()
   if win then
-    local wlabel = getUiChild(win, "winStatusLabel")
+    local wlabel = getUiChild(win, "winRunLabel") or getUiChild(win, "winStatusLabel")
     if wlabel then
       pcall(function() wlabel:setText(txt) end)
-      pcall(function() wlabel:setColor(col) end)
+
+      -- color: STOP=red, RUN but Heal/Mana OFF=yellow, OK=green
+      local col
+      if not running then col = "#ff2b2b"
+      elseif (not healOn) or (not manaOn) then col = "#ffcc00"
+      else col = "#00ff3a"
+      end
+      if type(wlabel.setColor) == "function" then
+        pcall(function() wlabel:setColor(col) end)
+      end
     end
   end
 end
