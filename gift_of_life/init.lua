@@ -1,3 +1,4 @@
+print("[LIVE] init.lua from repo")
 _G.GoL_ReloadSeq = (tonumber(_G.GoL_ReloadSeq) or 0) + 1
 local _GOL_RELOAD_SEQ = _G.GoL_ReloadSeq
 
