@@ -2290,12 +2290,39 @@ G.toggle = function()
 end
 G.isRunning = function() return G.enabled == true end
 
--- Initialize flags once (do not overwrite user toggles on reload)
-G.flags = G.flags or {
-  heal = (CFG.healEnabled ~= false),
-  mana = (CFG.manaEnabled ~= false),
-  loot = (CFG.lootEnabled == true),
-}
+-- Initialize flags from config on every load (survival-friendly)
+-- By default we force Heal/Mana ON on load to avoid accidental deaths.
+-- To opt out: set CFG.safety.forceSurvivalOnLoad = false
+local saveConfig -- forward decl (assigned later)
+
+G.flags = (type(G.flags) == 'table') and G.flags or {}
+G.flags.heal = (CFG.healEnabled ~= false)
+G.flags.mana = (CFG.manaEnabled ~= false)
+G.flags.loot = (CFG.lootEnabled == true)
+
+do
+  local safety = (type(CFG.safety) == 'table') and CFG.safety or {}
+  local changed = false
+  if safety.forceSurvivalOnLoad ~= false then
+    if G.flags.heal ~= true then
+      G.flags.heal = true
+      CFG.healEnabled = true
+      changed = true
+    end
+    if G.flags.mana ~= true then
+      G.flags.mana = true
+      CFG.manaEnabled = true
+      changed = true
+    end
+  end
+
+  -- Persist the forced flags into state file (deferred; saveConfig is defined later).
+  if changed and type(scheduleEvent) == 'function' then
+    scheduleEvent(function()
+      if type(saveConfig) == 'function' then pcall(saveConfig) end
+    end, 250)
+  end
+end
 
 G._tick = function()
   local t = nowMs()
@@ -4089,7 +4116,7 @@ local function serializeLua(v, indent)
   return out
 end
 
-local function saveConfig()
+saveConfig = function()
   -- NOTE: we no longer overwrite gift_of_life_config.lua (it is a compatibility shim).
   -- UI changes are persisted into gift_of_life_state.lua instead.
   local path = detectStatePath()
