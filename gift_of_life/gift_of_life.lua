@@ -35,6 +35,10 @@ local LOAD_TOKEN = G._loadToken
 G._reloadSeq = (tonumber(_G.GoL_ReloadSeq) or 0)
 local LOAD_SEQ = G._reloadSeq
 
+-- v12-pro: closing the window (X) hides it only for the current session.
+-- When the module is loaded again via init.lua/dofile, always allow the window to spawn.
+G._uiSuppressed = false
+
 
 -- g_settings keys (v10m): backup persistence for window geometry.
 local GSET_WIN_POS_KEY  = "gift_of_life.window-pos"
@@ -645,6 +649,39 @@ local function applyWindowChrome(win)
         end
       end
     end
+
+	    -- v12-pro: clamp window to visible area (prevents "lost" window after resolution changes
+	    -- or bad persisted X/Y).
+	    pcall(function()
+	      local sw, sh = nil, nil
+	      if g_window and type(g_window.getSize) == "function" then
+	        local okS, s = pcall(g_window.getSize)
+	        if okS and type(s) == "table" then
+	          sw = tonumber(s.width or s.w or s[1])
+	          sh = tonumber(s.height or s.h or s[2])
+	        end
+	      end
+	      if not sw or not sh then
+	        local root = (g_ui and g_ui.getRootWidget) and g_ui.getRootWidget() or nil
+	        if root then
+	          sw = sw or (type(root.getWidth) == "function" and root:getWidth() or nil)
+	          sh = sh or (type(root.getHeight) == "function" and root:getHeight() or nil)
+	        end
+	      end
+	      if type(sw) ~= "number" or type(sh) ~= "number" then return end
+
+	      local w, h = getWinSize(win)
+	      local x, y = getWinPos(win)
+	      if type(w) ~= "number" or type(h) ~= "number" or type(x) ~= "number" or type(y) ~= "number" then return end
+
+	      local maxX = math.max(0, sw - w)
+	      local maxY = math.max(0, sh - h)
+	      local nx = math.min(math.max(0, x), maxX)
+	      local ny = math.min(math.max(0, y), maxY)
+	      if nx ~= x or ny ~= y then
+	        setWinPos(win, nx, ny)
+	      end
+	    end)
 
   end
 
